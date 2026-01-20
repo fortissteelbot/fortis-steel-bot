@@ -1,121 +1,88 @@
 import os
-import smtplib
-import socket  # <-- ДОБАВЛЕНО ДЛЯ ТЕСТА
-from email.mime.text import MIMEText
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# НАСТРОЙКИ ДЛЯ ЯНДЕКСА (исправленные!)
-EMAIL_HOST = "smtp.yandex.ru"          # Обязательно smtp.yandex.ru
-EMAIL_PORT = 465                        # Для SSL, а не 587!
-EMAIL_USER = os.getenv("EMAIL_USER")    # Ваша почта 229@fortis-steel.ru
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")  # Пароль приложения
+# === НАСТРОЙКИ MAILGUN ===
+MAILGUN_API_KEY = os.getenv("MAILGUN_API_KEY")  # Ваш Private API Key
+MAILGUN_DOMAIN = os.getenv("MAILGUN_DOMAIN", "sandboxXXXXXX.mailgun.org")  # Ваш домен Mailgun
+EMAIL_FROM = f"Fortis Chatbot <bot@{MAILGUN_DOMAIN}>"  # Отправитель
 EMAIL_TO = os.getenv("EMAIL_TO", "fmd@fortis-steel.ru")  # Получатель
 
 def send_application_email(text: str, amount: int):
-    """Отправка заявки на email."""
+    """Отправка заявки через Mailgun API."""
     try:
-        # Создаем сообщение
-        msg = MIMEText(f"Поступила заявка на сумму {amount} руб.\n\nТекст заявки:\n{text}")
-        msg["Subject"] = f"🚀 Заявка с сайта Fortis: {amount} руб"
-        msg["From"] = EMAIL_USER
-        msg["To"] = EMAIL_TO
+        # Проверяем API ключ
+        if not MAILGUN_API_KEY:
+            print("⚠️ MAILGUN_API_KEY не настроен. Письмо не будет отправлено.")
+            return
         
-        # Подключаемся к SMTP серверу Яндекса (с SSL!)
-        with smtplib.SMTP_SSL(EMAIL_HOST, EMAIL_PORT) as server:  # SMTP_SSL вместо SMTP!
-            server.login(EMAIL_USER, EMAIL_PASSWORD)
-            server.send_message(msg)
-            print(f"✅ Email отправлен на {EMAIL_TO}")
+        # Данные для письма
+        email_data = {
+            "from": EMAIL_FROM,
+            "to": EMAIL_TO,
+            "subject": f"🚀 Новая заявка с сайта Fortis: {amount} руб.",
+            "text": f"Поступила заявка на сумму {amount} руб.\n\nТекст заявки:\n{text}\n\n---\nОтправлено чат-ботом сайта Fortis Steel"
+        }
+        
+        # URL для Mailgun API
+        mailgun_url = f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages"
+        
+        # Отправляем через Mailgun API (Basic Auth)
+        response = requests.post(
+            mailgun_url,
+            auth=("api", MAILGUN_API_KEY),  # Mailgun использует Basic Auth
+            data=email_data,
+            timeout=10
+        )
+        
+        # Проверяем ответ
+        if response.status_code == 200:
+            print(f"✅ Email успешно отправлен на {EMAIL_TO} через Mailgun API")
+            print(f"   ID сообщения: {response.json().get('id', 'unknown')}")
+        else:
+            print(f"⚠️ Mailgun API вернул ошибку {response.status_code}")
+            print(f"   Ответ: {response.text[:150]}")
             
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Ошибка сети: {str(e)}")
     except Exception as e:
-        print(f"❌ Ошибка отправки email: {str(e)}")
-        # НЕ поднимаем исключение дальше, чтобы бот продолжал работать
+        print(f"❌ Неожиданная ошибка: {str(e)}")
 
-# ===================================================
-# ТЕСТ СЕТИ RENDER (удалите после получения результатов)
-# ===================================================
-def test_render_network_capabilities():
-    """Тестируем, какие сетевые возможности есть у Render."""
-    print("\n" + "="*60)
-    print("🔍 ТЕСТ СЕТЕВЫХ ВОЗМОЖНОСТЕЙ RENDER")
-    print("="*60)
+# === ТЕСТОВАЯ ФУНКЦИЯ (удалите после теста) ===
+def test_mailgun_connection():
+    """Тестируем подключение к Mailgun."""
+    print("\n🔍 Тестируем подключение к Mailgun...")
     
-    # 1. Тест DNS (разрешение имен)
-    print("\n1. 🌐 DNS разрешение:")
+    if not MAILGUN_API_KEY:
+        print("❌ MAILGUN_API_KEY не найден в переменных окружения")
+        return False
+    
     try:
-        ip_address = socket.gethostbyname("smtp.yandex.ru")
-        print(f"   ✅ DNS работает: smtp.yandex.ru → {ip_address}")
-    except Exception as e:
-        print(f"   ❌ DNS не работает: {e}")
-    
-    # 2. Тест разных SMTP портов
-    print("\n2. 📡 Тест SMTP портов Яндекс:")
-    ports_to_test = [
-        (465, "SSL (основной для Яндекс)"),
-        (587, "STARTTLS (альтернативный)"),
-        (25, "SMTP стандартный"),
-    ]
-    
-    for port, description in ports_to_test:
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(3)  # 3 секунды таймаут
-            result = sock.connect_ex(("smtp.yandex.ru", port))
-            
-            if result == 0:
-                print(f"   Порт {port} ({description}): ✅ ОТКРЫТ")
-                sock.close()
-                
-                # Пробуем SMTP handshake
-                try:
-                    if port == 465:
-                        server = smtplib.SMTP_SSL("smtp.yandex.ru", port, timeout=5)
-                    else:
-                        server = smtplib.SMTP("smtp.yandex.ru", port, timeout=5)
-                        if port == 587:
-                            server.starttls()
-                    
-                    response = server.ehlo()
-                    print(f"     SMTP handshake: ✅ УСПЕХ ({response[0]})")
-                    server.quit()
-                except Exception as smtp_e:
-                    print(f"     SMTP handshake: ❌ {str(smtp_e)[:50]}")
-                    
-            else:
-                print(f"   Порт {port} ({description}): ❌ ЗАКРЫТ (ошибка {result})")
-                
-        except socket.timeout:
-            print(f"   Порт {port} ({description}): ❌ ТАЙМАУТ (блокировка)")
-        except Exception as e:
-            print(f"   Порт {port} ({description}): ❌ {str(e)[:50]}")
-    
-    # 3. Тест HTTP(S) запросов (важно для альтернатив)
-    print("\n3. 🌍 Тест HTTP(S) запросов (для API email):")
-    try:
-        import requests
-        test_urls = [
-            ("https://httpbin.org/ip", "Публичный HTTP"),
-            ("https://api.resend.com", "Resend API"),
-            ("https://api.sendgrid.com", "SendGrid API"),
-        ]
+        # Простой запрос для проверки домена
+        response = requests.get(
+            f"https://api.mailgun.net/v3/domains/{MAILGUN_DOMAIN}",
+            auth=("api", MAILGUN_API_KEY),
+            timeout=10
+        )
         
-        for url, name in test_urls:
-            try:
-                response = requests.get(url, timeout=10)
-                print(f"   {name}: ✅ Доступен (статус {response.status_code})")
-            except Exception as e:
-                print(f"   {name}: ❌ Недоступен ({str(e)[:30]})")
-                
-    except ImportError:
-        print("   Библиотека requests не установлена")
-    
-    print("\n" + "="*60)
-    print("📊 РЕЗУЛЬТАТ:")
-    print("="*60)
-    print("Если все SMTP порты закрыты, но HTTP работает - используйте")
-    print("email через API (Resend, SendGrid, Mailgun, etc.)")
-    print("="*60)
+        if response.status_code == 200:
+            print(f"✅ Подключение к Mailgun успешно!")
+            print(f"   Домен: {MAILGUN_DOMAIN}")
+            return True
+        else:
+            print(f"❌ Ошибка доступа к домену: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Ошибка подключения: {e}")
+        return False
+
+# Запускаем тест при импорте (удалите после проверки)
+print("\n🚀 Проверяем настройки Mailgun...")
+test_mailgun_connection()
+
 
 # Запуск теста при импорте (временно!)
 print("🚀 Запускаю тест сетевых возможностей Render...")
