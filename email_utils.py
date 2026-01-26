@@ -1,5 +1,6 @@
 import os
 import requests
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,12 +19,39 @@ def send_application_email(text: str, amount: int):
             print("⚠️ MAILGUN_API_KEY не настроен. Письмо не будет отправлено.")
             return
         
+        # Проверяем наличие контактов
+        has_phone = any(word in text.lower() for word in ['тел', 'телефон', 'звоните', '+7', '89', '8-9'])
+        has_email = '@' in text
+        has_name = any(word in text.lower() for word in ['зовут', 'имя', 'фамилия', 'меня'])
+        
+        # Улучшенный текст письма
+        email_text = f"""Поступила заявка на сумму {amount} руб.
+
+📋 Текст заявки:
+{text}
+
+📊 Детали:
+- Сумма: {amount} руб.
+- Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- Источник: Чат-бот сайта Fortis Steel
+
+📞 Контакты в заявке:
+- Телефон: {'✅ Есть' if has_phone else '❌ Нет'}
+- Email: {'✅ Есть' if has_email else '❌ Нет'} 
+- Имя: {'✅ Есть' if has_name else '❌ Нет'}
+
+{'⚠️ ВНИМАНИЕ: В заявке недостаточно контактных данных!' if not (has_phone or has_email) else '✅ В заявке есть контактные данные'}
+
+---
+Отправлено чат-ботом сайта Fortis Steel
+"""
+        
         # Данные для письма
         email_data = {
             "from": EMAIL_FROM,
             "to": EMAIL_TO,
             "subject": f"🚀 Новая заявка с сайта Fortis: {amount} руб.",
-            "text": f"Поступила заявка на сумму {amount} руб.\n\nТекст заявки:\n{text}\n\n---\nОтправлено чат-ботом сайта Fortis Steel"
+            "text": email_text
         }
         
         # URL для Mailgun API
@@ -39,7 +67,7 @@ def send_application_email(text: str, amount: int):
         
         # Проверяем ответ
         if response.status_code == 200:
-            print(f"✅ Email успешно отправлен на {EMAIL_TO} через Mailgun API")
+            print(f"✅ Email успешно отправлен на {EMAIL_TO}")
             print(f"   ID сообщения: {response.json().get('id', 'unknown')}")
         else:
             print(f"⚠️ Mailgun API вернул ошибку {response.status_code}")
@@ -50,7 +78,8 @@ def send_application_email(text: str, amount: int):
     except Exception as e:
         print(f"❌ Неожиданная ошибка: {str(e)}")
 
-# === ТЕСТОВАЯ ФУНКЦИЯ (закомментируйте для продакшена) ===
+
+# === ТЕСТОВАЯ ФУНКЦИЯ ===
 def test_mailgun_connection():
     """Тестируем подключение к Mailgun."""
     print("\n🔍 Тестируем подключение к Mailgun...")
@@ -78,7 +107,3 @@ def test_mailgun_connection():
     except Exception as e:
         print(f"❌ Ошибка подключения: {e}")
         return False
-
-# === ЗАКОММЕНТИРУЙТЕ ЭТИ ТЕСТОВЫЕ ВЫЗОВЫ ДЛЯ ПРОДАКШЕНА ===
-# print("\n🚀 Проверяем настройки Mailgun...")
-# test_mailgun_connection()
