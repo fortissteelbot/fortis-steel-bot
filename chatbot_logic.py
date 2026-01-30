@@ -5,7 +5,7 @@ SYSTEM_PROMPT = """
 Ты — опытный менеджер по продажам компании Фортис металл и дизайн, специализирующейся на оптовых и розничных поставках металлопроката. Ты вежливый, компетентный, ориентированный на клиента и умеешь вести деловой диалог. Твоя задача — помочь посетителю сайта подобрать нужный вид металлопроката, ответить на вопросы, предложить выгодные решения и, при наличии интересной заявки (от 50 000 рублей), корректно собрать контактные данные и отправить заявку на почту отдела продаж.
 
 Твоя роль:
-Выдавай себя за живого менеджера по имени Аркадий. Отвечай с задержкой, как если бы ты печатал текст вживую.
+Выдавай себя за живого менеджер по имени Аркадий. Отвечай с задержкой, как если бы ты печатал текст вживую.
 Представляйся кратко: «Здравствуйте, менеджер Аркадий. Готов помочь с подбором металлопроката и оформлением заказа.»
 
 Веди себя профессионально, но дружелюбно. Не используй сленг, но и не будь слишком формальным.
@@ -35,7 +35,7 @@ SYSTEM_PROMPT = """
 Работать с заявками от 50 000 руб.:
 
 Если клиент указал объём заказа или сумма по расчёту превышает 50 000 руб., мягко переходи к сбору данных:
-«Это уже серьёзный заказ — давайте я передам его секретарю, чтобы она назначила ответственного менеджеа, чтобы вам перезвонили и предложили лучшие условия. Назовите, пожалуйста, ваше имя, телефон и email?»
+«Это уже серьёзный заказ — давайте я передам его секретарю, чтобы она назначила ответственного менеджера, чтобы вам перезвонили и предложили лучшие условия. Назовите, пожалуйста, ваше имя, телефон и email?»
 
 Подтверди: «Спасибо Ваши данные отправлены. С вами свяжутся в течение 30 минут.»
 
@@ -158,12 +158,32 @@ def check_interesting_application(text: str):
     
     print(f"📞 Найденные телефоны для исключения: {phone_numbers}")
     
+    # ====== ФУНКЦИЯ ПРОВЕРКИ "НЕ ТЕЛЕФОН ЛИ" ======
+    def is_not_phone(number_str):
+        """Проверяет, что число НЕ является телефоном."""
+        if not number_str:
+            return True
+            
+        # Если число в списке найденных телефонов
+        if any(number_str in phone or phone in number_str for phone in phone_numbers):
+            return False
+            
+        # Дополнительные проверки
+        # Телефоны обычно 10-11 цифр
+        if len(number_str) in [10, 11]:
+            # Проверяем российские форматы: начинается с 7, 8, или 9
+            if (number_str.startswith('7') or 
+                number_str.startswith('8') or 
+                (len(number_str) == 10 and number_str.startswith('9'))):
+                return False
+                
+        return True
+    
     # ШАБЛОН 1A: "50 тыс" → ×1000
     matches_thousand = re.findall(r'(\d+)\s*тыс', t)
     for match in matches_thousand:
-        # Проверяем, не телефон ли это
-        if any(match in phone or phone in match for phone in phone_numbers):
-            print(f"   Пропускаем '{match} тыс' - похоже на часть телефона")
+        if not is_not_phone(match):
+            print(f"   Пропускаем '{match} тыс' - похоже на телефон")
             continue
             
         num = int(match) * 1000
@@ -175,9 +195,8 @@ def check_interesting_application(text: str):
     # ШАБЛОН 1B: "1 млн" → ×1000000
     matches_million = re.findall(r'(\d+)\s*млн', t)
     for match in matches_million:
-        # Проверяем, не телефон ли это
-        if any(match in phone or phone in match for phone in phone_numbers):
-            print(f"   Пропускаем '{match} млн' - похоже на часть телефона")
+        if not is_not_phone(match):
+            print(f"   Пропускаем '{match} млн' - похоже на телефон")
             continue
             
         num = int(match) * 1000000
@@ -190,8 +209,7 @@ def check_interesting_application(text: str):
     if 'руб' in t or 'р.' in t or 'р ' in t:
         matches_rub = re.findall(r'(\d+)[^\d]*руб', t) + re.findall(r'(\d+)[^\d]*р\.', t) + re.findall(r'(\d+)[^\d]*р\s', t)
         for match in matches_rub:
-            # Проверяем, не телефон ли это
-            if any(match in phone or phone in match for phone in phone_numbers):
+            if not is_not_phone(match):
                 print(f"   Пропускаем '{match} руб' - похоже на телефон")
                 continue
                 
@@ -210,6 +228,8 @@ def check_interesting_application(text: str):
     context_patterns = [
         r'(?:заказ|заявк[ау]|сумм[аой]|итого|на\s+сумму)\s*[вна]?\s*(\d+)',
         r'по\s+(\d+)',
+        r'цена\s*(\d+)',  # "цена 50000"
+        r'стоимость\s*(\d+)',  # "стоимость 60000"
     ]
     
     for pattern in context_patterns:
@@ -217,8 +237,7 @@ def check_interesting_application(text: str):
         if matches:
             print(f"🔎 Шаблон '{pattern}' → совпадения: {matches}")
             for match in matches:
-                # Проверяем, не телефон ли это
-                if any(match in phone or phone in match for phone in phone_numbers):
+                if not is_not_phone(match):
                     print(f"   Пропускаем '{match}' - похоже на телефон")
                     continue
                     
@@ -227,35 +246,92 @@ def check_interesting_application(text: str):
                     print(f"   🎯 НАШЛИ БОЛЬШУЮ СУММУ: {num} руб.")
                     return True, num
     
-    # ШАБЛОН 3: Количества и цены
-    quantity_price = re.search(r'(\d+)\s*(?:тонн|тн?|шт)[^.]*по\s*(\d+)', t)
-    if quantity_price:
-        quantity = quantity_price.group(1)
-        price = quantity_price.group(2)
-        
-        # Проверяем, не телефоны ли это
-        is_quantity_phone = any(quantity in phone or phone in quantity for phone in phone_numbers)
-        is_price_phone = any(price in phone or phone in price for phone in phone_numbers)
-        
-        if not (is_quantity_phone or is_price_phone):
-            quantity_num = int(quantity)
-            price_num = int(price)
-            total = quantity_num * price_num
-            print(f"🔎 Нашли '{quantity} по {price}' = {total} руб.")
-            if total >= 50000:
-                print(f"   🎯 НАШЛИ БОЛЬШУЮ СУММУ: {total} руб.")
-                return True, total
-        else:
-            print(f"   Пропускаем '{quantity} по {price}' - похоже на телефоны")
+    # ====== УЛУЧШЕННЫЙ ШАБЛОН 3: Количества и цены (разные варианты) ======
+    
+    # Вариант 3A: "X тонн по Y рублей"
+    patterns_quantity_price = [
+        r'(\d+)\s*(?:тонн|тн?|шт|штук|м|метров?|м\s*\.|кг|килограмм|листов?|труб?|проф[ие]лей?)\s*(?:по\s*)?(?:цена|стоимость|цене)?\s*(\d+)',
+        r'(\d+)\s*(?:по\s*)?(\d+)\s*(?:руб|р\.|р\s)',
+        r'цена\s*(\d+)\s*(?:руб|р\.|р\s)\s*(?:за|на)\s*(\d+)',
+    ]
+    
+    for pattern in patterns_quantity_price:
+        matches = re.findall(pattern, t)
+        if matches:
+            print(f"🔎 Шаблон количества '{pattern}' → совпадения: {matches}")
+            for quantity_str, price_str in matches:
+                # Проверяем, не телефоны ли
+                if not is_not_phone(quantity_str) or not is_not_phone(price_str):
+                    print(f"   Пропускаем '{quantity_str} по {price_str}' - похоже на телефоны")
+                    continue
+                
+                try:
+                    quantity = int(quantity_str)
+                    price = int(price_str)
+                    total = quantity * price
+                    print(f"🔎 Нашли '{quantity} по {price}' = {total} руб.")
+                    if total >= 50000:
+                        print(f"   🎯 НАШЛИ БОЛЬШУЮ СУММУ: {total} руб.")
+                        return True, total
+                except ValueError:
+                    continue
+    
+    # Вариант 3B: Поиск больших количеств (даже без цены)
+    # Если количество очень большое, может быть и так дорого
+    quantity_patterns = [
+        r'(\d+)\s*(?:тонн|тн?)',  # Тонны
+        r'(\d+)\s*(?:метр|м\s*\.)',  # Метры
+        r'(\d+)\s*шт',  # Штуки
+    ]
+    
+    # Средние рыночные цены для оценки (примерные)
+    avg_prices = {
+        'тонн': 50000,  # ~50,000 руб за тонну
+        'метр': 500,    # ~500 руб за метр
+        'шт': 1000,     # ~1000 руб за штуку
+    }
+    
+    for pattern in quantity_patterns:
+        matches = re.findall(pattern, t)
+        if matches:
+            print(f"🔎 Шаблон количества '{pattern}' → совпадения: {matches}")
+            for match in matches:
+                if not is_not_phone(match):
+                    print(f"   Пропускаем '{match}' - похоже на телефон")
+                    continue
+                
+                quantity = int(match)
+                
+                # Определяем тип и примерную цену
+                if 'тонн' in pattern or 'тн' in pattern:
+                    estimated_total = quantity * avg_prices['тонн']
+                    print(f"🔎 {quantity} тонн → примерно {estimated_total} руб (оценка)")
+                    if estimated_total >= 50000:
+                        print(f"   🎯 БОЛЬШОЕ КОЛИЧЕСТВО: ~{estimated_total} руб")
+                        return True, estimated_total
+                
+                elif 'метр' in pattern:
+                    estimated_total = quantity * avg_prices['метр']
+                    print(f"🔎 {quantity} метров → примерно {estimated_total} руб (оценка)")
+                    if estimated_total >= 50000:
+                        print(f"   🎯 БОЛЬШОЕ КОЛИЧЕСТВО: ~{estimated_total} руб")
+                        return True, estimated_total
+                
+                elif 'шт' in pattern:
+                    estimated_total = quantity * avg_prices['шт']
+                    print(f"🔎 {quantity} шт → примерно {estimated_total} руб (оценка)")
+                    if estimated_total >= 50000:
+                        print(f"   🎯 БОЛЬШОЕ КОЛИЧЕСТВО: ~{estimated_total} руб")
+                        return True, estimated_total
     
     # ШАБЛОН 4: Все числа (с интеллектуальной проверкой)
     all_numbers = re.findall(r'\d+', t)
     print(f"🔎 Все числа в тексте: {all_numbers}")
     
     for num_str in all_numbers:
-        # Пропускаем если это часть телефонного номера
-        if any(num_str in phone or phone in num_str for phone in phone_numbers):
-            print(f"   Пропускаем '{num_str}' - часть телефонного номера")
+        # Пропускаем если это телефон
+        if not is_not_phone(num_str):
+            print(f"   Пропускаем '{num_str}' - телефонный номер")
             continue
         
         # Пропускаем слишком длинные числа (вероятно не суммы)
