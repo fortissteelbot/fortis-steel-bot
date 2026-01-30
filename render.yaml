@@ -7,9 +7,9 @@ services:
     envVars:
       - key: REPLICATE_API_TOKEN
         sync: false
-      - key: MAILGUN_API_KEY
+      - key: SENDGRID_API_KEY
         sync: false
-      - key: MAILGUN_DOMAIN
+      - key: EMAIL_FROM
         sync: false
       - key: EMAIL_TO
         sync: false
