@@ -1,15 +1,12 @@
 import os
 from datetime import datetime
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Content
-from dotenv import load_dotenv
+from sendgrid.helpers.mail import Mail
 import re
-
-load_dotenv()
 
 # === НАСТРОЙКИ SENDGRID ===
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
-EMAIL_FROM = os.getenv("EMAIL_FROM", "bot@fortis-steel.ru")  # Должен быть верифицирован в SendGrid
+EMAIL_FROM = os.getenv("EMAIL_FROM", "bot@fortis-steel.ru")
 EMAIL_TO = os.getenv("EMAIL_TO", "229@fortis-steel.ru")
 
 def send_application_email(text: str, amount: int):
