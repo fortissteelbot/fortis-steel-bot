@@ -1,18 +1,19 @@
 import os
-import requests
 from datetime import datetime
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail, Content
 from dotenv import load_dotenv
+import re
 
 load_dotenv()
 
-# === НАСТРОЙКИ MAILGUN ===
-MAILGUN_API_KEY = os.getenv("MAILGUN_API_KEY")  # Ваш Private API Key
-MAILGUN_DOMAIN = os.getenv("MAILGUN_DOMAIN", "sandboxXXXXXX.mailgun.org")  # Ваш домен Mailgun
-EMAIL_FROM = f"Fortis Chatbot <bot@{MAILGUN_DOMAIN}>"  # Отправитель
-EMAIL_TO = os.getenv("EMAIL_TO", "229@fortis-steel.ru")  # Получатель
+# === НАСТРОЙКИ SENDGRID ===
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+EMAIL_FROM = os.getenv("EMAIL_FROM", "bot@fortis-steel.ru")  # Должен быть верифицирован в SendGrid
+EMAIL_TO = os.getenv("EMAIL_TO", "229@fortis-steel.ru")
 
 def send_application_email(text: str, amount: int):
-    """Отправка заявки через Mailgun API ТОЛЬКО при наличии контактов."""
+    """Отправка заявки через SendGrid API ТОЛЬКО при наличии контактов."""
     try:
         # ДВОЙНАЯ ПРОВЕРКА КОНТАКТОВ (на всякий случай)
         print(f"\n📧 ПРОВЕРКА КОНТАКТОВ ДЛЯ EMAIL:")
@@ -23,7 +24,6 @@ def send_application_email(text: str, amount: int):
         has_phone = any(keyword in text.lower() for keyword in phone_keywords)
         
         # Дополнительно ищем цифровые номера телефонов
-        import re
         phone_numbers = re.findall(r'[\+7]?[-\s]?\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{2}[-\s]?\d{2}', text)
         has_phone = has_phone or bool(phone_numbers)
         
@@ -53,8 +53,8 @@ def send_application_email(text: str, amount: int):
             return
         
         # Проверяем API ключ
-        if not MAILGUN_API_KEY:
-            print("⚠️ MAILGUN_API_KEY не настроен. Письмо не будет отправлено.")
+        if not SENDGRID_API_KEY:
+            print("⚠️ SENDGRID_API_KEY не настроен. Письмо не будет отправлено.")
             return
         
         # Улучшенный текст письма
@@ -79,64 +79,74 @@ def send_application_email(text: str, amount: int):
 Отправлено чат-ботом сайта Fortis Steel
 """
         
-        # Данные для письма
-        email_data = {
-            "from": EMAIL_FROM,
-            "to": EMAIL_TO,
-            "subject": f"🚀 Новая заявка с сайта Fortis: {amount} руб.",
-            "text": email_text
-        }
-        
-        # URL для Mailgun API
-        mailgun_url = f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages"
-        
-        # Отправляем через Mailgun API (Basic Auth)
-        response = requests.post(
-            mailgun_url,
-            auth=("api", MAILGUN_API_KEY),  # Mailgun использует Basic Auth
-            data=email_data,
-            timeout=10
+        # Создаем письмо через SendGrid
+        message = Mail(
+            from_email=EMAIL_FROM,
+            to_emails=EMAIL_TO,
+            subject=f"🚀 Новая заявка с сайта Fortis: {amount} руб.",
+            plain_text_content=email_text
         )
         
+        # Отправляем через SendGrid API
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sg.send(message)
+        
         # Проверяем ответ
-        if response.status_code == 200:
+        if response.status_code == 202:
             print(f"✅ Email успешно отправлен на {EMAIL_TO}")
-            print(f"   ID сообщения: {response.json().get('id', 'unknown')}")
+            print(f"   Status Code: {response.status_code}")
+            print(f"   Headers: {response.headers}")
         else:
-            print(f"⚠️ Mailgun API вернул ошибку {response.status_code}")
-            print(f"   Ответ: {response.text[:150]}")
+            print(f"⚠️ SendGrid API вернул ошибку {response.status_code}")
+            print(f"   Body: {response.body}")
             
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Ошибка сети: {str(e)}")
     except Exception as e:
-        print(f"❌ Неожиданная ошибка: {str(e)}")
+        print(f"❌ Ошибка отправки email: {str(e)}")
 
 
 # === ТЕСТОВАЯ ФУНКЦИЯ ===
-def test_mailgun_connection():
-    """Тестируем подключение к Mailgun."""
-    print("\n🔍 Тестируем подключение к Mailgun...")
+def test_sendgrid_connection():
+    """Тестируем подключение к SendGrid."""
+    print("\n🔍 Тестируем подключение к SendGrid...")
     
-    if not MAILGUN_API_KEY:
-        print("❌ MAILGUN_API_KEY не найден в переменных окружения")
+    if not SENDGRID_API_KEY:
+        print("❌ SENDGRID_API_KEY не найден в переменных окружения")
         return False
     
     try:
-        # Простой запрос для проверки домена
-        response = requests.get(
-            f"https://api.mailgun.net/v3/domains/{MAILGUN_DOMAIN}",
-            auth=("api", MAILGUN_API_KEY),
-            timeout=10
-        )
+        # Простой запрос для проверки API ключа
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        
+        # Получаем информацию об аккаунте
+        response = sg.client.user.account.get()
         
         if response.status_code == 200:
-            print(f"✅ Подключение к Mailgun успешно!")
-            print(f"   Домен: {MAILGUN_DOMAIN}")
+            print("✅ Подключение к SendGrid успешно!")
             return True
         else:
-            print(f"❌ Ошибка доступа к домену: {response.status_code}")
+            print(f"❌ Ошибка доступа к SendGrid: {response.status_code}")
+            print(f"   Ответ: {response.body}")
             return False
             
     except Exception as e:
         print(f"❌ Ошибка подключения: {e}")
+        return False
+
+
+# === АЛЬТЕРНАТИВНАЯ ФУНКЦИЯ (если нужна простая версия) ===
+def send_email_simple(subject: str, text: str):
+    """Простая функция отправки email через SendGrid."""
+    try:
+        message = Mail(
+            from_email=EMAIL_FROM,
+            to_emails=EMAIL_TO,
+            subject=subject,
+            plain_text_content=text
+        )
+        
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sg.send(message)
+        return response.status_code == 202
+    except Exception as e:
+        print(f"Ошибка отправки: {e}")
         return False
