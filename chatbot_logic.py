@@ -143,9 +143,29 @@ def check_interesting_application(text: str):
     
     import re
     
+    # ====== ПРЕДВАРИТЕЛЬНО: ищем телефонные номера, чтобы исключить их ======
+    phone_patterns = [
+        r'[\+7]?[-\s]?\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{2}[-\s]?\d{2}',  # Полные номера
+        r'\b\d{10}\b',  # 10 цифр подряд (9161234567)
+        r'\b\d{11}\b',  # 11 цифр подряд (89161234567)
+    ]
+    
+    phone_numbers = []
+    for pattern in phone_patterns:
+        phones = re.findall(pattern, t)
+        if phones:
+            phone_numbers.extend(phones)
+    
+    print(f"📞 Найденные телефоны для исключения: {phone_numbers}")
+    
     # ШАБЛОН 1A: "50 тыс" → ×1000
     matches_thousand = re.findall(r'(\d+)\s*тыс', t)
     for match in matches_thousand:
+        # Проверяем, не телефон ли это
+        if any(match in phone or phone in match for phone in phone_numbers):
+            print(f"   Пропускаем '{match} тыс' - похоже на часть телефона")
+            continue
+            
         num = int(match) * 1000
         print(f"🔎 Нашли '{match} тыс' → {num} руб.")
         if num >= 50000:
@@ -155,6 +175,11 @@ def check_interesting_application(text: str):
     # ШАБЛОН 1B: "1 млн" → ×1000000
     matches_million = re.findall(r'(\d+)\s*млн', t)
     for match in matches_million:
+        # Проверяем, не телефон ли это
+        if any(match in phone or phone in match for phone in phone_numbers):
+            print(f"   Пропускаем '{match} млн' - похоже на часть телефона")
+            continue
+            
         num = int(match) * 1000000
         print(f"🔎 Нашли '{match} млн' → {num} руб.")
         if num >= 50000:
@@ -165,6 +190,16 @@ def check_interesting_application(text: str):
     if 'руб' in t or 'р.' in t or 'р ' in t:
         matches_rub = re.findall(r'(\d+)[^\d]*руб', t) + re.findall(r'(\d+)[^\d]*р\.', t) + re.findall(r'(\d+)[^\d]*р\s', t)
         for match in matches_rub:
+            # Проверяем, не телефон ли это
+            if any(match in phone or phone in match for phone in phone_numbers):
+                print(f"   Пропускаем '{match} руб' - похоже на телефон")
+                continue
+                
+            # Дополнительная проверка: если число слишком длинное для суммы
+            if len(match) >= 7:  # 1,000,000 = 7 цифр, но это максимум для реальных сумм
+                print(f"   Пропускаем '{match} руб' - слишком длинное для суммы ({len(match)} цифр)")
+                continue
+                
             num = int(match)  # НЕ умножаем!
             print(f"🔎 Нашли '{match} руб' → {num} руб.")
             if num >= 50000:
@@ -182,6 +217,11 @@ def check_interesting_application(text: str):
         if matches:
             print(f"🔎 Шаблон '{pattern}' → совпадения: {matches}")
             for match in matches:
+                # Проверяем, не телефон ли это
+                if any(match in phone or phone in match for phone in phone_numbers):
+                    print(f"   Пропускаем '{match}' - похоже на телефон")
+                    continue
+                    
                 num = int(match)
                 if num >= 50000:
                     print(f"   🎯 НАШЛИ БОЛЬШУЮ СУММУ: {num} руб.")
@@ -190,24 +230,54 @@ def check_interesting_application(text: str):
     # ШАБЛОН 3: Количества и цены
     quantity_price = re.search(r'(\d+)\s*(?:тонн|тн?|шт)[^.]*по\s*(\d+)', t)
     if quantity_price:
-        quantity = int(quantity_price.group(1))
-        price = int(quantity_price.group(2))
-        total = quantity * price
-        print(f"🔎 Нашли '{quantity} по {price}' = {total} руб.")
-        if total >= 50000:
-            print(f"   🎯 НАШЛИ БОЛЬШУЮ СУММУ: {total} руб.")
-            return True, total
+        quantity = quantity_price.group(1)
+        price = quantity_price.group(2)
+        
+        # Проверяем, не телефоны ли это
+        is_quantity_phone = any(quantity in phone or phone in quantity for phone in phone_numbers)
+        is_price_phone = any(price in phone or phone in price for phone in phone_numbers)
+        
+        if not (is_quantity_phone or is_price_phone):
+            quantity_num = int(quantity)
+            price_num = int(price)
+            total = quantity_num * price_num
+            print(f"🔎 Нашли '{quantity} по {price}' = {total} руб.")
+            if total >= 50000:
+                print(f"   🎯 НАШЛИ БОЛЬШУЮ СУММУ: {total} руб.")
+                return True, total
+        else:
+            print(f"   Пропускаем '{quantity} по {price}' - похоже на телефоны")
     
-    # ШАБЛОН 4: Все большие числа
+    # ШАБЛОН 4: Все числа (с интеллектуальной проверкой)
     all_numbers = re.findall(r'\d+', t)
     print(f"🔎 Все числа в тексте: {all_numbers}")
     
     for num_str in all_numbers:
+        # Пропускаем если это часть телефонного номера
+        if any(num_str in phone or phone in num_str for phone in phone_numbers):
+            print(f"   Пропускаем '{num_str}' - часть телефонного номера")
+            continue
+        
+        # Пропускаем слишком длинные числа (вероятно не суммы)
+        if len(num_str) >= 7:  # Более 1 млн обычно пишут "1 млн", а не "1000000"
+            print(f"   Пропускаем '{num_str}' - слишком длинное ({len(num_str)} цифр)")
+            continue
+            
         num = int(num_str)
+        
+        # Пропускаем "подозрительные" числа
+        # Например: 12345, 54321 (последовательности) - вероятно не суммы
+        digits = [int(d) for d in num_str]
+        is_sequence = all(digits[i] == digits[i-1] + 1 for i in range(1, len(digits))) or \
+                      all(digits[i] == digits[i-1] - 1 for i in range(1, len(digits)))
+        
+        if is_sequence and len(num_str) >= 4:
+            print(f"   Пропускаем '{num_str}' - последовательность цифр")
+            continue
+            
         if num >= 50000:
             print(f"   🎯 НАШЛИ БОЛЬШУЮ СУММУ (резервный поиск): {num} руб.")
             return True, num
     
     print(f"❌ Не нашли суммы > 50000")
     return False, 0
-
