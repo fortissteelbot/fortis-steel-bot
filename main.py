@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from chatbot_logic import generate_bot_reply, check_interesting_application
-from email_utils import send_application_email
+from email_utils import send_application_email  # Теперь использует SendGrid
 from dotenv import load_dotenv
 
 load_dotenv()
