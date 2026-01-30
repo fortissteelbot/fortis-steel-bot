@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from chatbot_logic import generate_bot_reply, check_interesting_application
@@ -7,6 +7,10 @@ from email_utils import send_application_email, send_incomplete_application_emai
 from dotenv import load_dotenv
 import re
 from datetime import datetime, timedelta
+import requests
+import threading
+import time
+import asyncio
 
 load_dotenv()
 
@@ -27,6 +31,63 @@ REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 
 # Хранилище сессий пользователей (ключ: IP, значение: данные сессии)
 user_sessions = {}
+
+# ====== ФУНКЦИИ ДЛЯ ПОДДЕРЖАНИЯ АКТИВНОСТИ ======
+
+async def keep_alive_ping():
+    """Периодически пингуем сам себя, чтобы сервер не засыпал."""
+    while True:
+        try:
+            # Ждем 10 минут (меньше чем 15 минут таймаут Render)
+            await asyncio.sleep(600)  # 600 секунд = 10 минут
+            
+            # Пингуем наш же сервер
+            base_url = os.getenv("RENDER_EXTERNAL_URL", "https://fortis-steel-bot.onrender.com")
+            
+            # Пробуем разные endpoint'ы
+            endpoints_to_ping = ["/health", "/", "/chat"]
+            
+            for endpoint in endpoints_to_ping:
+                try:
+                    url = f"{base_url}{endpoint}"
+                    
+                    if endpoint == "/chat":
+                        # Для /chat делаем POST с тестовым сообщением
+                        response = requests.post(
+                            url,
+                            json={"message": "ping"},
+                            timeout=5
+                        )
+                    else:
+                        # Для остальных GET
+                        response = requests.get(url, timeout=5)
+                    
+                    print(f"🔔 Keep-alive ping to {endpoint}: {response.status_code}")
+                    
+                except Exception as e:
+                    print(f"⚠️ Keep-alive ping failed for {endpoint}: {e}")
+                    
+        except Exception as e:
+            print(f"❌ Keep-alive loop error: {e}")
+            await asyncio.sleep(60)  # Ждем минуту при ошибке
+
+def start_keep_alive():
+    """Запускаем keep-alive в фоновом потоке."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(keep_alive_ping())
+
+# Запускаем keep-alive при старте приложения
+@app.on_event("startup")
+async def startup_event():
+    """Запускается при старте приложения."""
+    print("🚀 Starting Fortis Chatbot API...")
+    print("🔔 Starting keep-alive service...")
+    
+    # Запускаем keep-alive в фоне
+    threading.Thread(target=start_keep_alive, daemon=True).start()
+    
+    print("✅ Keep-alive service started")
 
 def cleanup_old_sessions():
     """
@@ -216,6 +277,16 @@ async def root():
             "chat": "/chat (POST)",
             "health": "/health (GET, HEAD)"
         }
+    }
+
+
+@app.get("/ping")
+async def ping():
+    """Простой endpoint для пинга сервера."""
+    return {
+        "status": "pong",
+        "timestamp": datetime.now().isoformat(),
+        "service": "fortis-chatbot"
     }
 
 
