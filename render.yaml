@@ -7,9 +7,11 @@ services:
     envVars:
       - key: REPLICATE_API_TOKEN
         sync: false
-      - key: SENDGRID_API_KEY
+      - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM
         sync: false
       - key: EMAIL_TO
         sync: false
+      - key: RENDER_EXTERNAL_URL
+        value: https://fortis-steel-bot.onrender.com
