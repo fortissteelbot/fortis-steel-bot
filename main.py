@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, Request, Response, BackgroundTasks
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from chatbot_logic import generate_bot_reply, check_interesting_application
@@ -9,7 +9,6 @@ import re
 from datetime import datetime, timedelta
 import requests
 import threading
-import time
 import asyncio
 
 load_dotenv()
@@ -35,7 +34,7 @@ user_sessions = {}
 # ====== ФУНКЦИИ ДЛЯ ПОДДЕРЖАНИЯ АКТИВНОСТИ ======
 
 async def keep_alive_ping():
-    """Периодически пингуем сам себя, чтобы сервер не засыпал."""
+    """Периодически пингуем сам себя, чтобы сервер не засыпал на Render."""
     while True:
         try:
             # Ждем 10 минут (меньше чем 15 минут таймаут Render)
@@ -45,23 +44,12 @@ async def keep_alive_ping():
             base_url = os.getenv("RENDER_EXTERNAL_URL", "https://fortis-steel-bot.onrender.com")
             
             # Пробуем разные endpoint'ы
-            endpoints_to_ping = ["/health", "/", "/chat"]
+            endpoints_to_ping = ["/health", "/", "/ping"]
             
             for endpoint in endpoints_to_ping:
                 try:
                     url = f"{base_url}{endpoint}"
-                    
-                    if endpoint == "/chat":
-                        # Для /chat делаем POST с тестовым сообщением
-                        response = requests.post(
-                            url,
-                            json={"message": "ping"},
-                            timeout=5
-                        )
-                    else:
-                        # Для остальных GET
-                        response = requests.get(url, timeout=5)
-                    
+                    response = requests.get(url, timeout=5)
                     print(f"🔔 Keep-alive ping to {endpoint}: {response.status_code}")
                     
                 except Exception as e:
@@ -88,6 +76,8 @@ async def startup_event():
     threading.Thread(target=start_keep_alive, daemon=True).start()
     
     print("✅ Keep-alive service started")
+    print(f"📧 Email service: Resend")
+    print(f"🤖 AI service: Replicate")
 
 def cleanup_old_sessions():
     """
@@ -265,35 +255,123 @@ async def health_check(request: Request):
     """Эндпоинт для проверки здоровья, поддерживает GET и HEAD."""
     if request.method == "HEAD":
         return Response(status_code=200)
-    return {"status": "ok", "service": "chatbot-api"}
+    return {
+        "status": "ok", 
+        "service": "fortis-chatbot-api",
+        "timestamp": datetime.now().isoformat(),
+        "sessions_count": len(user_sessions),
+        "email_service": "resend"
+    }
 
 
 @app.get("/")
 async def root():
+    """Корневой endpoint с информацией о сервисе."""
     return {
         "service": "Fortis Chatbot API", 
         "status": "running",
+        "version": "1.0",
+        "timestamp": datetime.now().isoformat(),
         "endpoints": {
-            "chat": "/chat (POST)",
-            "health": "/health (GET, HEAD)"
+            "chat": {
+                "url": "/chat",
+                "method": "POST",
+                "description": "Основной endpoint для общения с ботом"
+            },
+            "health": {
+                "url": "/health", 
+                "method": "GET, HEAD",
+                "description": "Проверка работоспособности сервиса"
+            },
+            "ping": {
+                "url": "/ping",
+                "method": "GET",
+                "description": "Простой пинг для keep-alive"
+            }
+        },
+        "features": {
+            "ai_provider": "Replicate (Llama 3 70B)",
+            "email_provider": "Resend",
+            "session_timeout": "10 minutes for incomplete applications",
+            "min_order_amount": "50,000 RUB"
         }
     }
 
 
 @app.get("/ping")
 async def ping():
-    """Простой endpoint для пинга сервера."""
+    """Простой endpoint для пинга сервера (используется для keep-alive)."""
     return {
         "status": "pong",
         "timestamp": datetime.now().isoformat(),
-        "service": "fortis-chatbot"
+        "service": "fortis-chatbot",
+        "message": "Server is alive and responding"
     }
 
 
 @app.get("/debug/sessions")
 async def debug_sessions():
     """Отладочный эндпоинт для просмотра активных сессий (только для разработки)."""
+    now = datetime.now()
+    active_sessions = {}
+    
+    for session_id, session_data in user_sessions.items():
+        session_age = now - session_data['created_at']
+        active_sessions[session_id] = {
+            "age_seconds": session_age.total_seconds(),
+            "age_minutes": round(session_age.total_seconds() / 60, 1),
+            "amount": session_data['amount'],
+            "phone": session_data['phone'],
+            "email": session_data['email'],
+            "message_count": session_data['message_count'],
+            "email_sent": session_data['email_sent'],
+            "incomplete_sent": session_data.get('incomplete_sent', False)
+        }
+    
     return {
-        "active_sessions": len(user_sessions),
-        "sessions": user_sessions
+        "active_sessions_count": len(user_sessions),
+        "current_time": now.isoformat(),
+        "sessions": active_sessions
     }
+
+
+@app.get("/test/email")
+async def test_email():
+    """Тестовый endpoint для проверки отправки email (только для разработки)."""
+    test_amount = 75000
+    test_phone = "+79161234567"
+    test_email = "test@example.com"
+    test_text = "Это тестовое сообщение для проверки отправки email через Resend."
+    
+    try:
+        # Тест полной заявки
+        success_full = send_application_email(test_text, test_amount, test_phone, test_email)
+        
+        # Тест неполной заявки
+        success_incomplete = send_incomplete_application_email(test_text, test_amount, test_phone, None)
+        
+        return {
+            "status": "test_completed",
+            "full_email_sent": success_full,
+            "incomplete_email_sent": success_incomplete,
+            "test_data": {
+                "amount": test_amount,
+                "phone": test_phone,
+                "email": test_email
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+# Обработчик ошибок 404
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
+    return Response(
+        status_code=404,
+        content=f"Endpoint {request.url.path} not found. Available endpoints: /chat (POST), /health (GET), / (GET)"
+    )
