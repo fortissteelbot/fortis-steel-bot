@@ -1,30 +1,31 @@
 import os
 from datetime import datetime
-import resend
-import re
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
-# === НАСТРОЙКИ RESEND ===
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-EMAIL_FROM = os.getenv("EMAIL_FROM", "Fortis Bot <bot@fortis-steel.ru>")
+# === НАСТРОЙКИ SENDGRID ===
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+EMAIL_FROM = os.getenv("EMAIL_FROM", "youremail@fortissteelbot.com>")
 EMAIL_TO = os.getenv("EMAIL_TO", "229@fortis-steel.ru")
-
-# Инициализируем Resend
-resend.api_key = RESEND_API_KEY
 
 def send_application_email(full_text: str, amount: int, phone: str, email: str):
     """
-    Отправка ПОЛНОЙ заявки через Resend API.
+    Отправка ПОЛНОЙ заявки через SendGrid API.
     Вызывается, когда у клиента есть И телефон, И email.
     """
     try:
-        print(f"\n📨 ОТПРАВКА ПОЛНОЙ ЗАЯВКИ ЧЕРЕЗ RESEND")
+        print(f"\n📨 ОТПРАВКА ПОЛНОЙ ЗАЯВКИ ЧЕРЕЗ SENDGRID")
         print(f"   Сумма: {amount} руб.")
         print(f"   Телефон: {phone}")
         print(f"   Email: {email}")
         
         # Проверяем API ключ
-        if not RESEND_API_KEY:
-            print("⚠️ КРИТИЧЕСКАЯ ОШИБКА: RESEND_API_KEY не настроен.")
+        if not SENDGRID_API_KEY:
+            print("⚠️ КРИТИЧЕСКАЯ ОШИБКА: SENDGRID_API_KEY не настроен.")
+            return False
+        
+        if not EMAIL_FROM or not EMAIL_TO:
+            print("⚠️ EMAIL_FROM или EMAIL_TO не настроены.")
             return False
         
         # Формируем текст письма
@@ -53,43 +54,43 @@ def send_application_email(full_text: str, amount: int, phone: str, email: str):
 Автоматически отправлено чат-ботом сайта Fortis Steel
 """
         
-        # Отправляем через Resend API
-        params = {
-            "from": EMAIL_FROM,
-            "to": [EMAIL_TO],
-            "subject": f"🎯 ПОЛНАЯ ЗАЯВКА Fortis: {amount:,} руб.",
-            "text": email_text
-        }
+        # Отправляем через SendGrid API
+        message = Mail(
+            from_email=EMAIL_FROM,
+            to_emails=EMAIL_TO,
+            subject=f"🎯 ПОЛНАЯ ЗАЯВКА Fortis: {amount:,} руб.",
+            plain_text_content=email_text
+        )
         
-        response = resend.Emails.send(params)
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sg.send(message)
         
-        if 'id' in response:
-            print(f"✅ ПОЛНАЯ заявка успешно отправлена на {EMAIL_TO}")
-            print(f"   ID письма: {response['id']}")
-            return True
-        else:
-            print(f"⚠️ ОШИБКА Resend при отправке полной заявки")
-            print(f"   Ответ: {response}")
-            return False
-            
+        print(f"✅ ПОЛНАЯ заявка успешно отправлена на {EMAIL_TO}")
+        print(f"   Статус код: {response.status_code}")
+        return True
+        
     except Exception as e:
-        print(f"❌ КРИТИЧЕСКАЯ ОШИБКА при отправке полной заявки через Resend: {str(e)}")
+        print(f"❌ КРИТИЧЕСКАЯ ОШИБКА при отправке полной заявки через SendGrid: {str(e)}")
         return False
 
 
 def send_incomplete_application_email(full_text: str, amount: int, phone: str = None, email: str = None):
     """
-    Отправка НЕПОЛНОЙ заявки через Resend API.
+    Отправка НЕПОЛНОЙ заявки через SendGrid API.
     Вызывается при таймауте (10 минут) или если клиент дал только один контакт.
     """
     try:
-        print(f"\n📨 ОТПРАВКА НЕПОЛНОЙ ЗАЯВКИ ЧЕРЕЗ RESEND (ТАЙМАУТ)")
+        print(f"\n📨 ОТПРАВКА НЕПОЛНОЙ ЗАЯВКИ ЧЕРЕЗ SENDGRID (ТАЙМАУТ)")
         print(f"   Сумма: {amount} руб.")
         print(f"   Телефон: {phone if phone else 'Нет'}")
         print(f"   Email: {email if email else 'Нет'}")
         
-        if not RESEND_API_KEY:
-            print("⚠️ RESEND_API_KEY не настроен.")
+        if not SENDGRID_API_KEY:
+            print("⚠️ SENDGRID_API_KEY не настроен.")
+            return False
+        
+        if not EMAIL_FROM or not EMAIL_TO:
+            print("⚠️ EMAIL_FROM или EMAIL_TO не настроены.")
             return False
         
         # Определяем, чего не хватает
@@ -134,85 +135,80 @@ def send_incomplete_application_email(full_text: str, amount: int, phone: str = 
 Автоматически отправлено чат-ботом сайта Fortis Steel
 """
         
-        # Отправляем через Resend
-        params = {
-            "from": EMAIL_FROM,
-            "to": [EMAIL_TO],
-            "subject": f"⚠️ НЕПОЛНАЯ ЗАЯВКА Fortis: {amount:,} руб. (нет {missing_text})",
-            "text": email_text
-        }
+        # Отправляем через SendGrid
+        message = Mail(
+            from_email=EMAIL_FROM,
+            to_emails=EMAIL_TO,
+            subject=f"⚠️ НЕПОЛНАЯ ЗАЯВКА Fortis: {amount:,} руб. (нет {missing_text})",
+            plain_text_content=email_text
+        )
         
-        response = resend.Emails.send(params)
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sg.send(message)
         
-        if 'id' in response:
-            print(f"✅ НЕПОЛНАЯ заявка отправлена на {EMAIL_TO}")
-            print(f"   ID письма: {response['id']}")
-            return True
-        else:
-            print(f"⚠️ Ошибка Resend при отправке неполной заявки: {response}")
-            return False
-            
+        print(f"✅ НЕПОЛНАЯ заявка отправлена на {EMAIL_TO}")
+        print(f"   Статус код: {response.status_code}")
+        return True
+        
     except Exception as e:
-        print(f"❌ Ошибка при отправке неполной заявки через Resend: {str(e)}")
+        print(f"❌ Ошибка при отправке неполной заявки через SendGrid: {str(e)}")
         return False
 
 
-def test_resend_connection():
+def test_sendgrid_connection():
     """
-    Тестируем подключение к Resend.
+    Тестируем подключение к SendGrid.
     Проверяет, работает ли API ключ.
     """
-    print("\n🔍 ТЕСТИРУЕМ ПОДКЛЮЧЕНИЕ К RESEND...")
+    print("\n🔍 ТЕСТИРУЕМ ПОДКЛЮЧЕНИЕ К SENDGRID...")
     
-    if not RESEND_API_KEY:
-        print("❌ RESEND_API_KEY не найден в переменных окружения")
+    if not SENDGRID_API_KEY:
+        print("❌ SENDGRID_API_KEY не найден в переменных окружения")
         return False
     
     try:
         # Пытаемся отправить тестовое письмо
-        test_params = {
-            "from": EMAIL_FROM,
-            "to": [EMAIL_TO],
-            "subject": "✅ Тест подключения Resend",
-            "text": f"Тестовое письмо от чат-бота Fortis Steel\nВремя: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        }
+        message = Mail(
+            from_email=EMAIL_FROM,
+            to_emails=EMAIL_TO,
+            subject="✅ Тест подключения SendGrid",
+            plain_text_content=f"Тестовое письмо от чат-бота Fortis Steel\nВремя: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
         
-        response = resend.Emails.send(test_params)
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sg.send(message)
         
-        if 'id' in response:
-            print("✅ Подключение к Resend успешно!")
-            print(f"   Тестовое письмо отправлено, ID: {response['id']}")
-            return True
-        else:
-            print(f"❌ Ошибка подключения к Resend: {response}")
-            return False
-            
+        print(f"✅ Подключение к SendGrid успешно!")
+        print(f"   Тестовое письмо отправлено, статус: {response.status_code}")
+        return True
+        
     except Exception as e:
-        print(f"❌ Ошибка подключения к Resend: {e}")
+        print(f"❌ Ошибка подключения к SendGrid: {e}")
         return False
 
 
 def send_email_simple(subject: str, text: str):
     """
-    Простая функция отправки email через Resend.
+    Простая функция отправки email через SendGrid.
     Используется для тестовых целей или простых уведомлений.
     """
     try:
-        params = {
-            "from": EMAIL_FROM,
-            "to": [EMAIL_TO],
-            "subject": subject,
-            "text": text
-        }
+        message = Mail(
+            from_email=EMAIL_FROM,
+            to_emails=EMAIL_TO,
+            subject=subject,
+            plain_text_content=text
+        )
         
-        response = resend.Emails.send(params)
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sg.send(message)
         
-        success = 'id' in response
+        success = response.status_code in [200, 201, 202]
         if success:
             print(f"✅ Простое письмо отправлено: {subject}")
-            print(f"   ID: {response['id']}")
+            print(f"   Статус: {response.status_code}")
         else:
-            print(f"⚠️ Ошибка отправки простого письма: {response}")
+            print(f"⚠️ Ошибка отправки простого письма: {response.status_code}")
         
         return success
         
@@ -223,6 +219,6 @@ def send_email_simple(subject: str, text: str):
 
 # === ТЕСТОВЫЙ ВЫЗОВ ПРИ ЗАПУСКЕ МОДУЛЯ ===
 if __name__ == "__main__":
-    print("🧪 Тестируем модуль email_utils.py с Resend")
-    test_result = test_resend_connection()
+    print("🧪 Тестируем модуль email_utils.py с SendGrid")
+    test_result = test_sendgrid_connection()
     print(f"Результат теста: {'✅ УСПЕХ' if test_result else '❌ ПРОВАЛ'}")
