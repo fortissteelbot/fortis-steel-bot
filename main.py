@@ -28,24 +28,19 @@ def validate_environment():
             "how_to_get": "https://replicate.com/account/api-tokens",
             "example": "r8_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         },
-        "RESEND_API_KEY": {
-            "description": "API ключ для отправки email через Resend",
-            "how_to_get": "https://resend.com/api-keys",
-            "example": "re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-        },
-        "EMAIL_FROM": {
-            "description": "Email отправителя для писем",
-            "example": "Fortis Bot <bot@fortis-steel.ru>",
-            "note": "Домен должен быть верифицирован в Resend"
-        },
-        "EMAIL_TO": {
-            "description": "Email получателя заявок",
-            "example": "229@fortis-steel.ru",
-            "note": "Основной email менеджеров"
+        "FORMSPREE_URL": {
+            "description": "URL формы Formspree для отправки email",
+            "example": "https://formspree.io/f/xgozobyn",
+            "note": "Получи на formspree.io после создания формы"
         }
     }
     
     optional_vars = {
+        "EMAIL_TO": {
+            "description": "Email получателя заявок",
+            "default": "229@fortis-steel.ru",
+            "note": "Основной email менеджеров"
+        },
         "RENDER_EXTERNAL_URL": {
             "description": "URL приложения на Render (для keep-alive)",
             "default": "https://fortis-steel-bot.onrender.com"
@@ -119,9 +114,7 @@ def validate_environment():
 
 📋 Пример заполнения:
    - REPLICATE_API_TOKEN: ваш_токен_из_replicate
-   - RESEND_API_KEY: ваш_ключ_из_resend
-   - EMAIL_FROM: "Fortis Bot <bot@fortis-steel.ru>"
-   - EMAIL_TO: 229@fortis-steel.ru
+   - FORMSPREE_URL: https://formspree.io/f/xgozobyn
 
 ⚠️  Без этих переменных приложение не сможет работать!
 {'='*80}
@@ -172,9 +165,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Получаем переменные окружения (теперь они точно есть)
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-EMAIL_FROM = os.getenv("EMAIL_FROM")
-EMAIL_TO = os.getenv("EMAIL_TO")
+FORMSPREE_URL = os.getenv("FORMSPREE_URL", "https://formspree.io/f/xgozobyn")
+EMAIL_TO = os.getenv("EMAIL_TO", "229@fortis-steel.ru")
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "https://fortis-steel-bot.onrender.com")
 
 # Хранилище сессий пользователей (ключ: IP, значение: данные сессии)
@@ -227,7 +219,7 @@ async def startup_event():
     print("🚀 Запуск Fortis Chatbot API...")
     print("="*60)
     
-    print(f"📧 Email сервис: {'✅ Resend' if RESEND_API_KEY else '❌ Не настроен'}")
+    print(f"📧 Email сервис: {'✅ Formspree' if FORMSPREE_URL else '❌ Не настроен'}")
     print(f"🤖 AI сервис: {'✅ Replicate' if REPLICATE_API_TOKEN else '❌ Не настроен'}")
     print(f"📨 Отправка писем на: {EMAIL_TO}")
     print(f"🌐 Внешний URL: {RENDER_EXTERNAL_URL}")
@@ -430,8 +422,7 @@ async def health_check(request: Request):
     # Проверяем доступность внешних сервисов
     services_status = {
         "replicate_api": bool(REPLICATE_API_TOKEN),
-        "resend_api": bool(RESEND_API_KEY),
-        "email_from": bool(EMAIL_FROM),
+        "formspree_api": bool(FORMSPREE_URL),
         "email_to": bool(EMAIL_TO)
     }
     
@@ -482,7 +473,7 @@ async def root():
         },
         "features": {
             "ai_provider": "Replicate (Llama 3 70B)" if REPLICATE_API_TOKEN else "Не настроен",
-            "email_provider": "Resend" if RESEND_API_KEY else "Не настроен",
+            "email_provider": "Formspree" if FORMSPREE_URL else "Не настроен",
             "session_timeout": "10 minutes for incomplete applications",
             "min_order_amount": "50,000 RUB",
             "target_email": EMAIL_TO
@@ -543,16 +534,16 @@ async def test_email():
         return {"error": "Доступ запрещен в production режиме"}
     
     # Проверяем наличие API ключей
-    if not RESEND_API_KEY:
+    if not FORMSPREE_URL:
         return {
             "status": "error",
-            "error": "RESEND_API_KEY не настроен"
+            "error": "FORMSPREE_URL не настроен"
         }
     
     test_amount = 75000
     test_phone = "+79161234567"
     test_email = "test@example.com"
-    test_text = "Это тестовое сообщение для проверки отправки email через Resend."
+    test_text = "Это тестовое сообщение для проверки отправки email через Formspree."
     
     try:
         # Тест полной заявки
@@ -571,14 +562,14 @@ async def test_email():
                 "email": test_email
             },
             "email_to": EMAIL_TO,
-            "email_from": EMAIL_FROM
+            "formspree_url": FORMSPREE_URL
         }
         
     except Exception as e:
         return {
             "status": "error",
             "error": str(e),
-            "resend_api_key_set": bool(RESEND_API_KEY)
+            "formspree_url_set": bool(FORMSPREE_URL)
         }
 
 
